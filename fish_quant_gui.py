@@ -32,6 +32,7 @@ except Exception:
 import matplotlib.pyplot as plt
 from matplotlib.widgets import Slider, Button, TextBox, RadioButtons
 from matplotlib.colors import LinearSegmentedColormap
+from matplotlib.collections import EllipseCollection
 
 import tkinter as tk
 from tkinter import filedialog, messagebox
@@ -158,6 +159,7 @@ def interactive_analysis(image_raw, initial_modifier):
     "thr_auto": None,
     "modifier": initial_modifier,
     "spot_radius": core.DEFAULT_SPOT_RADIUS,
+    "voxel_size": core.DEFAULT_VOXEL_SIZE,
     "finished": False,
   }
 
@@ -172,7 +174,7 @@ def interactive_analysis(image_raw, initial_modifier):
 
   fig, (ax_raw, ax_ovl) = plt.subplots(1, 2, figsize=(15, 8), sharex=True, sharey=True)
   fig.canvas.manager.set_window_title("FISH-Quant Interactive — detection review")
-  plt.subplots_adjust(bottom=0.40, top=0.90, right=0.86)
+  plt.subplots_adjust(bottom=0.46, top=0.90, right=0.86)
 
   im_raw = ax_raw.imshow(image_raw[z0], cmap="gray", vmin=vmin0, vmax=vmax0)
   im_ovl = ax_ovl.imshow(image_raw[z0], cmap="gray", vmin=vmin0, vmax=vmax0)
@@ -180,7 +182,7 @@ def interactive_analysis(image_raw, initial_modifier):
   ax_raw.set_title(f"raw — z={z0}")
   ax_ovl.set_title("no detection run yet")
 
-  status = fig.text(0.5, 0.955, "Set a threshold modifier and click 'Run detection' to start",
+  status = fig.text(0.5, 0.955, "Set a threshold modifier and click 'Regular Detect' or 'Dense Detect' to start",
                      ha="center", fontsize=10)
 
   # LUT (lookup table) picker, à la Image > Lookup Tables in Fiji/ImageJ --
@@ -236,10 +238,10 @@ def interactive_analysis(image_raw, initial_modifier):
     nudge_targets.append((box, slider, nudge_step))
     return slider, box
 
-  z_slider, _z_box = add_precise_slider(0.31, "z-slice", 0, zmax, z0, valstep=1, nudge_step=1)
-  thr_slider, _thr_box = add_precise_slider(0.26, "threshold modifier", 0.05, 2.0, initial_modifier, nudge_step=0.01)
-  vmin_slider, _vmin_box = add_precise_slider(0.21, "brightness min", 0, img_max, vmin0, valstep=1, nudge_step=1)
-  vmax_slider, _vmax_box = add_precise_slider(0.16, "brightness max", 1, img_max, vmax0, valstep=1, nudge_step=1)
+  z_slider, _z_box = add_precise_slider(0.37, "z-slice", 0, zmax, z0, valstep=1, nudge_step=1)
+  thr_slider, _thr_box = add_precise_slider(0.32, "threshold modifier", 0.05, 2.0, initial_modifier, nudge_step=0.01)
+  vmin_slider, _vmin_box = add_precise_slider(0.27, "brightness min", 0, img_max, vmin0, valstep=1, nudge_step=1)
+  vmax_slider, _vmax_box = add_precise_slider(0.22, "brightness max", 1, img_max, vmax0, valstep=1, nudge_step=1)
 
   def on_key_press(event):
     if event.key not in ("up", "down"):
@@ -254,15 +256,23 @@ def interactive_analysis(image_raw, initial_modifier):
 
   fig.canvas.mpl_connect("key_press_event", on_key_press)
 
-  # spot_radius (nm) -- xy and z are edited separately since bigfish expects
-  # (z, y, x); text boxes rather than sliders since these are typed, not dragged
+  # spot_radius and voxel_size (nm) -- xy and z are edited separately since
+  # bigfish expects (z, y, x); text boxes rather than sliders since these
+  # are typed, not dragged
   default_radius_z, default_radius_y, default_radius_x = core.DEFAULT_SPOT_RADIUS
+  default_voxel_z, default_voxel_y, default_voxel_x = core.DEFAULT_VOXEL_SIZE
 
-  ax_radius_xy = fig.add_axes([0.30, 0.10, 0.12, 0.045])
+  ax_radius_xy = fig.add_axes([0.30, 0.09, 0.12, 0.04])
   radius_xy_box = TextBox(ax_radius_xy, "spot radius xy (nm)   ", initial=str(default_radius_x))
 
-  ax_radius_z = fig.add_axes([0.68, 0.10, 0.12, 0.045])
+  ax_radius_z = fig.add_axes([0.68, 0.09, 0.12, 0.04])
   radius_z_box = TextBox(ax_radius_z, "spot radius z (nm)   ", initial=str(default_radius_z))
+
+  ax_voxel_xy = fig.add_axes([0.30, 0.14, 0.12, 0.04])
+  voxel_xy_box = TextBox(ax_voxel_xy, "voxel size xy (nm)   ", initial=str(default_voxel_x))
+
+  ax_voxel_z = fig.add_axes([0.68, 0.14, 0.12, 0.04])
+  voxel_z_box = TextBox(ax_voxel_z, "voxel size z (nm)   ", initial=str(default_voxel_z))
 
   def redraw(_=None):
     z = int(round(z_slider.val))
@@ -286,50 +296,68 @@ def interactive_analysis(image_raw, initial_modifier):
   vmin_slider.on_changed(redraw)
   vmax_slider.on_changed(redraw)
 
-  ax_run = fig.add_axes([0.15, 0.03, 0.2, 0.05])
-  run_btn = Button(ax_run, "Run detection")
+  ax_regular = fig.add_axes([0.10, 0.03, 0.16, 0.05])
+  regular_btn = Button(ax_regular, "Regular Detect")
 
-  ax_finish = fig.add_axes([0.40, 0.03, 0.2, 0.05])
+  ax_dense = fig.add_axes([0.28, 0.03, 0.16, 0.05])
+  dense_btn = Button(ax_dense, "Dense Detect")
+
+  ax_finish = fig.add_axes([0.46, 0.03, 0.16, 0.05])
   finish_btn = Button(ax_finish, "Finish & Save")
 
-  ax_cancel = fig.add_axes([0.65, 0.03, 0.2, 0.05])
+  ax_cancel = fig.add_axes([0.64, 0.03, 0.16, 0.05])
   cancel_btn = Button(ax_cancel, "Cancel")
 
-  def run_detection(_event):
+  def read_positive(box, label):
+    val = float(box.text)
+    if val <= 0:
+      raise ValueError(f"{label} must be a positive number")
+    return val
+
+  def run_detection(detect_fn, method_label, running_note=""):
     try:
-      radius_xy = float(radius_xy_box.text)
-      radius_z = float(radius_z_box.text)
-      if radius_xy <= 0 or radius_z <= 0:
-        raise ValueError
-    except ValueError:
-      status.set_text("Spot radius must be a positive number (nm). Fix it and try again.")
+      radius_xy = read_positive(radius_xy_box, "spot radius xy")
+      radius_z = read_positive(radius_z_box, "spot radius z")
+      voxel_xy = read_positive(voxel_xy_box, "voxel size xy")
+      voxel_z = read_positive(voxel_z_box, "voxel size z")
+    except ValueError as exc:
+      status.set_text(f"{exc} (nm). Fix it and try again.")
       fig.canvas.draw_idle()
       return
     spot_radius = (radius_z, radius_xy, radius_xy)
+    voxel_size = (voxel_z, voxel_xy, voxel_xy)
 
-    status.set_text("Running detection on the full stack, this can take a moment...")
+    status.set_text(f"Running {method_label} on the full stack...{running_note}")
     fig.canvas.draw()
     fig.canvas.flush_events()
 
     modifier = thr_slider.val
     try:
-      all_spots, thr_auto = core.detect_spots(image_raw, modifier, spot_radius=spot_radius)
+      all_spots, thr_auto = detect_fn(image_raw, modifier, voxel_size=voxel_size, spot_radius=spot_radius)
     except Exception as exc:
-      status.set_text(f"Detection failed with spot radius {spot_radius} (likely too small for "
-                       f"this image's pixel size): {exc}")
+      status.set_text(f"Detection failed with spot radius {spot_radius} / voxel size {voxel_size} "
+                       f"(radius likely too small for this voxel size): {exc}")
       fig.canvas.draw_idle()
       return
     state["all_spots"] = all_spots
     state["thr_auto"] = thr_auto
     state["modifier"] = modifier
     state["spot_radius"] = spot_radius
+    state["voxel_size"] = voxel_size
 
     used = thr_auto * modifier
     status.set_text(
-      f"auto threshold={thr_auto:.4g}   modifier={modifier:.3f}   threshold used={used:.4g}   "
-      f"spot radius (z,y,x)={spot_radius}   total spots={len(all_spots)}"
+      f"[{method_label}]  auto threshold={thr_auto:.4g}   modifier={modifier:.3f}   threshold used={used:.4g}   "
+      f"spot radius (z,y,x)={spot_radius}   voxel size (z,y,x)={voxel_size}   total spots={len(all_spots)}"
     )
     redraw()
+
+  def run_regular(_event):
+    run_detection(core.detect_spots, "regular detection")
+
+  def run_dense(_event):
+    run_detection(core.dense_detect_spots, "dense detection",
+                   running_note=" this decomposes dense/clustered regions and can take several minutes")
 
   def finish(_event):
     if len(state["all_spots"]) == 0:
@@ -343,7 +371,8 @@ def interactive_analysis(image_raw, initial_modifier):
     state["finished"] = False
     plt.close(fig)
 
-  run_btn.on_clicked(run_detection)
+  regular_btn.on_clicked(run_regular)
+  dense_btn.on_clicked(run_dense)
   finish_btn.on_clicked(finish)
   cancel_btn.on_clicked(cancel)
 

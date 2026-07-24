@@ -9,7 +9,7 @@ script (fish_quant.py) and the standalone interactive tool
 
 import os
 from pathlib import Path
-
+import bigfish.plot as plot
 import pandas as pd
 import bigfish.stack as stack
 import bigfish.detection as detection
@@ -48,6 +48,13 @@ def detect_spots(image_raw, thrshld_modifier,
   )
   return all_spots, auto_threshold
 
+def dense_detect_spots(image_raw, thrshld_modifier,
+                       voxel_size=DEFAULT_VOXEL_SIZE, spot_radius=DEFAULT_SPOT_RADIUS):
+  
+  spots, auto_threshold = detect_spots(image_raw, thrshld_modifier, voxel_size=voxel_size, spot_radius=spot_radius)
+  print("\r shape: {0}".format(spots.shape))
+  all_spots, dense_regions, reference_spot = detection.decompose_dense(image_raw, spots, voxel_size=voxel_size, spot_radius=spot_radius, alpha = 0.5, beta = 1, gamma = 5)
+  return all_spots, auto_threshold
 
 def spots_to_dataframe(all_spots):
   return pd.DataFrame({"z": all_spots[:, 0], "y": all_spots[:, 1], "x": all_spots[:, 2]})
@@ -101,3 +108,14 @@ def filter_multiple_roi(csv_dir="./csv"):
       print(f"WARNING: expected 2 csvs (mex6+puf5) in {folder}, found {len(csv_paths)}: {csv_paths}")
     for csv_path in csv_paths:
       filter_roi(roi_path, csv_path)
+
+
+# image_raw = load_image("/Users/johnny5201/Downloads/C3-FLP21_EMPY_MEX6_24HR_Project (2).lif - 24hr_FLP21_mex6_w5.tif")
+# image_mip = stack.maximum_projection(image_raw)
+# before_spots, before_thr = detect_spots(image_raw, 1.0)
+# plot.plot_detection(image_mip, before_spots, contrast=True)
+# spots, dense_thr = dense_detect_spots(image_raw, 1.0)
+
+# print("\r shape: {0}".format(spots.shape))
+
+#plot.plot_detection(image_mip, spots, contrast=True)
