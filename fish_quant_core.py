@@ -22,7 +22,7 @@ def load_image(path_to_data):
 
 
 DEFAULT_VOXEL_SIZE = (560, 360, 360)   # (z, y, x) nm
-DEFAULT_SPOT_RADIUS = (560, 200, 200)  # (z, y, x) nm
+DEFAULT_SPOT_RADIUS = (560, 300, 300)  # (z, y, x) nm
 
 
 def detect_spots(image_raw, thrshld_modifier,
@@ -63,6 +63,17 @@ def spots_to_dataframe(all_spots):
 def save_spots_csv(all_spots, output_path):
   spots_to_dataframe(all_spots).to_csv(output_path, index=False)
   return output_path
+
+
+def load_spots_csv(csv_path):
+  """Inverse of save_spots_csv: read a previously-saved (or ROI-filtered)
+  spots csv back into an (N, 3) array of (z, y, x), for viewing without
+  re-running detection."""
+  df = pd.read_csv(csv_path)
+  missing = [col for col in ("z", "y", "x") if col not in df.columns]
+  if missing:
+    raise ValueError(f"csv is missing required column(s) {missing}; expected z, y, x")
+  return df[["z", "y", "x"]].to_numpy()
 
 
 def filter_roi(roi_path, csv_path):

@@ -6,14 +6,18 @@ fish_quant.py. Run it with:
 
     python fish_quant_gui.py
 
-Flow:
-  1. A small window to pick the image (.tif) to analyze.
-  2. An interactive window with a threshold-modifier slider ("Run
-     detection" re-runs spot detection at the chosen modifier) and a
-     z-slice slider to page through the stack and check detections
-     against the raw image.
-  3. Once you click "Finish & Save", pick where to save the spots csv.
-  4. You're then asked whether to filter those spots with an ROI file.
+The startup screen offers three independent things to do:
+  - Start Analysis: pick an image (.tif), then an interactive window with
+    a threshold-modifier slider, spot radius / voxel size boxes, and
+    Regular/Dense Detect buttons to run spot detection, plus a z-slice
+    slider to page through the stack and check detections against the
+    raw image. "Finish & Save" saves the resulting spots csv, then offers
+    to filter it with an ROI file.
+  - Filter a csv with an ROI...: filter an existing spots csv against an
+    ROI file directly, without opening any image.
+  - View Detections from a csv...: load an image plus a previously-saved
+    (or ROI-filtered) spots csv and browse it in the same z-slice viewer,
+    without running any detection.
 
 Detection/filtering logic itself lives in fish_quant_core.py, which mirrors
 the logic already in fish_quant.py (kept untouched) minus the
@@ -40,6 +44,24 @@ from tkinter import filedialog, messagebox
 import fish_quant_core as core
 
 
+def _default_figsize():
+  """Size the review window to most of the actual screen, so images render
+  as large as possible on whatever monitor is in use (falls back to a fixed
+  size if the screen can't be queried for some reason)."""
+  try:
+    probe = tk.Tk()
+    probe.withdraw()
+    screen_w = probe.winfo_screenwidth()
+    screen_h = probe.winfo_screenheight()
+    probe.destroy()
+    dpi = 100
+    width_in = min(max(screen_w * 0.92 / dpi, 15), 24)
+    height_in = min(max(screen_h * 0.85 / dpi, 8), 15)
+    return (width_in, height_in)
+  except Exception:
+    return (16, 9)
+
+
 def _solid_hue_lut(name, rgb):
   # matches ImageJ/Fiji's single-hue LUTs: a linear ramp from black to a
   # fully-saturated color, rather than a perceptual/multi-hue colormap
@@ -60,16 +82,17 @@ LUTS = {
 
 
 def pick_image_and_threshold():
-  """First screen: analyze a new image, or jump straight to filtering an
-  existing csv with an roi. Returns a dict with a "mode" key ("analyze",
-  "filter", or missing/None if cancelled)."""
+  """First screen: analyze a new image, jump straight to filtering an
+  existing csv with an roi, or just view an existing csv's detections
+  against an image. Returns a dict with a "mode" key ("analyze", "filter",
+  "view", or missing/None if cancelled)."""
   root = tk.Tk()
   root.title("FISH-Quant Interactive")
   root.resizable(False, False)
 
   result = {}
   path_var = tk.StringVar()
-  thr_var = tk.StringVar(value="0.35")
+  thr_var = tk.StringVar(value="1")
 
   tk.Label(root, text="Image file (.tif) to analyze:").grid(row=0, column=0, columnspan=3, sticky="w", padx=10, pady=(10, 0))
 
@@ -107,16 +130,24 @@ def pick_image_and_threshold():
     result["mode"] = "filter"
     root.destroy()
 
+  def go_view_only():
+    result["mode"] = "view"
+    root.destroy()
+
   def cancel():
     root.destroy()
 
   tk.Label(root, text="— or —").grid(row=3, column=0, columnspan=3, pady=(10, 0))
 
   btn_frame = tk.Frame(root)
-  btn_frame.grid(row=4, column=0, columnspan=3, pady=14)
+  btn_frame.grid(row=4, column=0, columnspan=3, pady=(14, 4))
   tk.Button(btn_frame, text="Start Analysis", command=start, width=16).pack(side="left", padx=6)
   tk.Button(btn_frame, text="Filter a csv with an ROI...", command=go_filter_only, width=22).pack(side="left", padx=6)
-  tk.Button(btn_frame, text="Cancel", command=cancel, width=10).pack(side="left", padx=6)
+
+  btn_frame2 = tk.Frame(root)
+  btn_frame2.grid(row=5, column=0, columnspan=3, pady=(4, 14))
+  tk.Button(btn_frame2, text="View Detections from a csv...", command=go_view_only, width=26).pack(side="left", padx=6)
+  tk.Button(btn_frame2, text="Cancel", command=cancel, width=10).pack(side="left", padx=6)
 
   root.mainloop()
   return result
@@ -152,10 +183,46 @@ def standalone_roi_filter():
   )
 
 
-def interactive_analysis(image_raw, initial_modifier):
-  """Threshold + z-slice review window. Returns dict with all_spots/thr/finished."""
+def view_csv_detections():
+  """Load an image and a previously-saved (or ROI-filtered) spots csv, and
+  open the z-slice/brightness/LUT viewer with those spots overlaid --
+  no detection is (re-)run."""
+  image_path = filedialog.askopenfilename(
+    title="Select image the csv's spots belong to",
+    filetypes=[("TIFF images", "*.tif *.tiff"), ("All files", "*.*")],
+  )
+  if not image_path:
+    return
+
+  csv_path = filedialog.askopenfilename(
+    title="Select spots csv to view",
+    filetypes=[("CSV files", "*.csv"), ("All files", "*.*")],
+  )
+  if not csv_path:
+    return
+
+  try:
+    all_spots = core.load_spots_csv(csv_path)
+  except Exception as exc:
+    messagebox.showerror("Could not load csv", f"{csv_path}\n\n{exc}")
+    return
+
+  print(f"Loading {image_path} ...")
+  image_raw = core.load_image(image_path)
+  interactive_analysis(image_raw, preloaded_spots=all_spots, view_only=True)
+
+
+def interactive_analysis(image_raw, initial_modifier=1.0, preloaded_spots=None, view_only=False):
+  """Threshold + z-slice review window. Returns dict with all_spots/thr/finished.
+
+  If preloaded_spots is given, the viewer opens with those spots already
+  shown (e.g. loaded from an existing csv) instead of starting empty.
+  view_only=True hides the detection controls (threshold modifier, spot
+  radius, voxel size, Regular/Dense Detect) and shows a single Close
+  button -- used for browsing an existing csv's spots, not detecting new ones.
+  """
   state = {
-    "all_spots": np.empty((0, 3)),
+    "all_spots": preloaded_spots if preloaded_spots is not None else np.empty((0, 3)),
     "thr_auto": None,
     "modifier": initial_modifier,
     "spot_radius": core.DEFAULT_SPOT_RADIUS,
@@ -172,9 +239,14 @@ def interactive_analysis(image_raw, initial_modifier):
   vmax0 = max(vmin0 + 1, int(round(p995)))
   img_max = max(2, int(image_raw.max()))
 
-  fig, (ax_raw, ax_ovl) = plt.subplots(1, 2, figsize=(15, 8), sharex=True, sharey=True)
-  fig.canvas.manager.set_window_title("FISH-Quant Interactive — detection review")
-  plt.subplots_adjust(bottom=0.46, top=0.90, right=0.86)
+  fig, (ax_raw, ax_ovl) = plt.subplots(1, 2, figsize=_default_figsize(), sharex=True, sharey=True)
+  window_title = "FISH-Quant Interactive — viewing csv" if view_only else "FISH-Quant Interactive — detection review"
+  fig.canvas.manager.set_window_title(window_title)
+  bottom_margin = 0.20 if view_only else 0.32
+  plt.subplots_adjust(bottom=bottom_margin, top=0.93, right=0.86)
+
+  ax_raw.axis("off")
+  ax_ovl.axis("off")
 
   im_raw = ax_raw.imshow(image_raw[z0], cmap="gray", vmin=vmin0, vmax=vmax0)
   im_ovl = ax_ovl.imshow(image_raw[z0], cmap="gray", vmin=vmin0, vmax=vmax0)
@@ -182,12 +254,15 @@ def interactive_analysis(image_raw, initial_modifier):
   ax_raw.set_title(f"raw — z={z0}")
   ax_ovl.set_title("no detection run yet")
 
-  status = fig.text(0.5, 0.955, "Set a threshold modifier and click 'Regular Detect' or 'Dense Detect' to start",
-                     ha="center", fontsize=10)
+  if view_only:
+    initial_status = f"Viewing {len(state['all_spots'])} spots loaded from csv"
+  else:
+    initial_status = "Set a threshold modifier and click 'Regular Detect' or 'Dense Detect' to start"
+  status = fig.text(0.5, 0.97, initial_status, ha="center", fontsize=10)
 
   # LUT (lookup table) picker, à la Image > Lookup Tables in Fiji/ImageJ --
   # changes how raw intensities are colored, applied to both panels
-  ax_lut = fig.add_axes([0.89, 0.45, 0.10, 0.40])
+  ax_lut = fig.add_axes([0.89, 0.40, 0.10, 0.50])
   ax_lut.set_title("LUT", fontsize=9)
   lut_radio = RadioButtons(ax_lut, list(LUTS.keys()), active=0)
   for lbl in lut_radio.labels:
@@ -238,10 +313,16 @@ def interactive_analysis(image_raw, initial_modifier):
     nudge_targets.append((box, slider, nudge_step))
     return slider, box
 
-  z_slider, _z_box = add_precise_slider(0.37, "z-slice", 0, zmax, z0, valstep=1, nudge_step=1)
-  thr_slider, _thr_box = add_precise_slider(0.32, "threshold modifier", 0.05, 2.0, initial_modifier, nudge_step=0.01)
-  vmin_slider, _vmin_box = add_precise_slider(0.27, "brightness min", 0, img_max, vmin0, valstep=1, nudge_step=1)
-  vmax_slider, _vmax_box = add_precise_slider(0.22, "brightness max", 1, img_max, vmax0, valstep=1, nudge_step=1)
+  if view_only:
+    z_y, vmin_y, vmax_y = 0.15, 0.115, 0.08
+  else:
+    z_y, thr_y, vmin_y, vmax_y = 0.27, 0.235, 0.20, 0.165
+
+  z_slider, _z_box = add_precise_slider(z_y, "z-slice", 0, zmax, z0, valstep=1, nudge_step=1)
+  vmin_slider, _vmin_box = add_precise_slider(vmin_y, "brightness min", 0, img_max, vmin0, valstep=1, nudge_step=1)
+  vmax_slider, _vmax_box = add_precise_slider(vmax_y, "brightness max", 1, img_max, vmax0, valstep=1, nudge_step=1)
+  if not view_only:
+    thr_slider, _thr_box = add_precise_slider(thr_y, "threshold modifier", 0.05, 2.0, initial_modifier, nudge_step=0.01)
 
   def on_key_press(event):
     if event.key not in ("up", "down"):
@@ -256,23 +337,24 @@ def interactive_analysis(image_raw, initial_modifier):
 
   fig.canvas.mpl_connect("key_press_event", on_key_press)
 
-  # spot_radius and voxel_size (nm) -- xy and z are edited separately since
-  # bigfish expects (z, y, x); text boxes rather than sliders since these
-  # are typed, not dragged
-  default_radius_z, default_radius_y, default_radius_x = core.DEFAULT_SPOT_RADIUS
-  default_voxel_z, default_voxel_y, default_voxel_x = core.DEFAULT_VOXEL_SIZE
+  if not view_only:
+    # spot_radius and voxel_size (nm) -- xy and z are edited separately since
+    # bigfish expects (z, y, x); text boxes rather than sliders since these
+    # are typed, not dragged
+    default_radius_z, default_radius_y, default_radius_x = core.DEFAULT_SPOT_RADIUS
+    default_voxel_z, default_voxel_y, default_voxel_x = core.DEFAULT_VOXEL_SIZE
 
-  ax_radius_xy = fig.add_axes([0.30, 0.09, 0.12, 0.04])
-  radius_xy_box = TextBox(ax_radius_xy, "spot radius xy (nm)   ", initial=str(default_radius_x))
+    ax_radius_xy = fig.add_axes([0.30, 0.075, 0.12, 0.035])
+    radius_xy_box = TextBox(ax_radius_xy, "spot radius xy (nm)   ", initial=str(default_radius_x))
 
-  ax_radius_z = fig.add_axes([0.68, 0.09, 0.12, 0.04])
-  radius_z_box = TextBox(ax_radius_z, "spot radius z (nm)   ", initial=str(default_radius_z))
+    ax_radius_z = fig.add_axes([0.68, 0.075, 0.12, 0.035])
+    radius_z_box = TextBox(ax_radius_z, "spot radius z (nm)   ", initial=str(default_radius_z))
 
-  ax_voxel_xy = fig.add_axes([0.30, 0.14, 0.12, 0.04])
-  voxel_xy_box = TextBox(ax_voxel_xy, "voxel size xy (nm)   ", initial=str(default_voxel_x))
+    ax_voxel_xy = fig.add_axes([0.30, 0.115, 0.12, 0.035])
+    voxel_xy_box = TextBox(ax_voxel_xy, "voxel size xy (nm)   ", initial=str(default_voxel_x))
 
-  ax_voxel_z = fig.add_axes([0.68, 0.14, 0.12, 0.04])
-  voxel_z_box = TextBox(ax_voxel_z, "voxel size z (nm)   ", initial=str(default_voxel_z))
+    ax_voxel_z = fig.add_axes([0.68, 0.115, 0.12, 0.035])
+    voxel_z_box = TextBox(ax_voxel_z, "voxel size z (nm)   ", initial=str(default_voxel_z))
 
   def redraw(_=None):
     z = int(round(z_slider.val))
@@ -296,85 +378,99 @@ def interactive_analysis(image_raw, initial_modifier):
   vmin_slider.on_changed(redraw)
   vmax_slider.on_changed(redraw)
 
-  ax_regular = fig.add_axes([0.10, 0.03, 0.16, 0.05])
-  regular_btn = Button(ax_regular, "Regular Detect")
+  if view_only:
+    ax_close = fig.add_axes([0.37, 0.02, 0.16, 0.045])
+    close_btn = Button(ax_close, "Close")
 
-  ax_dense = fig.add_axes([0.28, 0.03, 0.16, 0.05])
-  dense_btn = Button(ax_dense, "Dense Detect")
+    def close(_event):
+      state["finished"] = False
+      plt.close(fig)
 
-  ax_finish = fig.add_axes([0.46, 0.03, 0.16, 0.05])
-  finish_btn = Button(ax_finish, "Finish & Save")
+    close_btn.on_clicked(close)
 
-  ax_cancel = fig.add_axes([0.64, 0.03, 0.16, 0.05])
-  cancel_btn = Button(ax_cancel, "Cancel")
-
-  def read_positive(box, label):
-    val = float(box.text)
-    if val <= 0:
-      raise ValueError(f"{label} must be a positive number")
-    return val
-
-  def run_detection(detect_fn, method_label, running_note=""):
-    try:
-      radius_xy = read_positive(radius_xy_box, "spot radius xy")
-      radius_z = read_positive(radius_z_box, "spot radius z")
-      voxel_xy = read_positive(voxel_xy_box, "voxel size xy")
-      voxel_z = read_positive(voxel_z_box, "voxel size z")
-    except ValueError as exc:
-      status.set_text(f"{exc} (nm). Fix it and try again.")
-      fig.canvas.draw_idle()
-      return
-    spot_radius = (radius_z, radius_xy, radius_xy)
-    voxel_size = (voxel_z, voxel_xy, voxel_xy)
-
-    status.set_text(f"Running {method_label} on the full stack...{running_note}")
-    fig.canvas.draw()
-    fig.canvas.flush_events()
-
-    modifier = thr_slider.val
-    try:
-      all_spots, thr_auto = detect_fn(image_raw, modifier, voxel_size=voxel_size, spot_radius=spot_radius)
-    except Exception as exc:
-      status.set_text(f"Detection failed with spot radius {spot_radius} / voxel size {voxel_size} "
-                       f"(radius likely too small for this voxel size): {exc}")
-      fig.canvas.draw_idle()
-      return
-    state["all_spots"] = all_spots
-    state["thr_auto"] = thr_auto
-    state["modifier"] = modifier
-    state["spot_radius"] = spot_radius
-    state["voxel_size"] = voxel_size
-
-    used = thr_auto * modifier
-    status.set_text(
-      f"[{method_label}]  auto threshold={thr_auto:.4g}   modifier={modifier:.3f}   threshold used={used:.4g}   "
-      f"spot radius (z,y,x)={spot_radius}   voxel size (z,y,x)={voxel_size}   total spots={len(all_spots)}"
-    )
+    # spots were preloaded, not detected here -- draw them immediately
     redraw()
 
-  def run_regular(_event):
-    run_detection(core.detect_spots, "regular detection")
+  else:
+    ax_regular = fig.add_axes([0.10, 0.02, 0.16, 0.045])
+    regular_btn = Button(ax_regular, "Regular Detect")
 
-  def run_dense(_event):
-    run_detection(core.dense_detect_spots, "dense detection",
-                   running_note=" this decomposes dense/clustered regions and can take several minutes")
+    ax_dense = fig.add_axes([0.28, 0.02, 0.16, 0.045])
+    dense_btn = Button(ax_dense, "Dense Detect")
 
-  def finish(_event):
-    if len(state["all_spots"]) == 0:
-      status.set_text("Run detection at least once before finishing.")
-      fig.canvas.draw_idle()
-      return
-    state["finished"] = True
-    plt.close(fig)
+    ax_finish = fig.add_axes([0.46, 0.02, 0.16, 0.045])
+    finish_btn = Button(ax_finish, "Finish & Save")
 
-  def cancel(_event):
-    state["finished"] = False
-    plt.close(fig)
+    ax_cancel = fig.add_axes([0.64, 0.02, 0.16, 0.045])
+    cancel_btn = Button(ax_cancel, "Cancel")
 
-  regular_btn.on_clicked(run_regular)
-  dense_btn.on_clicked(run_dense)
-  finish_btn.on_clicked(finish)
-  cancel_btn.on_clicked(cancel)
+    def read_positive(box, label):
+      val = float(box.text)
+      if val <= 0:
+        raise ValueError(f"{label} must be a positive number")
+      return val
+
+    def run_detection(detect_fn, method_label, running_note=""):
+      try:
+        radius_xy = read_positive(radius_xy_box, "spot radius xy")
+        radius_z = read_positive(radius_z_box, "spot radius z")
+        voxel_xy = read_positive(voxel_xy_box, "voxel size xy")
+        voxel_z = read_positive(voxel_z_box, "voxel size z")
+      except ValueError as exc:
+        status.set_text(f"{exc} (nm). Fix it and try again.")
+        fig.canvas.draw_idle()
+        return
+      spot_radius = (radius_z, radius_xy, radius_xy)
+      voxel_size = (voxel_z, voxel_xy, voxel_xy)
+
+      status.set_text(f"Running {method_label} on the full stack...{running_note}")
+      fig.canvas.draw()
+      fig.canvas.flush_events()
+
+      modifier = thr_slider.val
+      try:
+        all_spots, thr_auto = detect_fn(image_raw, modifier, voxel_size=voxel_size, spot_radius=spot_radius)
+      except Exception as exc:
+        status.set_text(f"Detection failed with spot radius {spot_radius} / voxel size {voxel_size} "
+                         f"(radius likely too small for this voxel size): {exc}")
+        fig.canvas.draw_idle()
+        return
+      state["all_spots"] = all_spots
+      state["thr_auto"] = thr_auto
+      state["modifier"] = modifier
+      state["spot_radius"] = spot_radius
+      state["voxel_size"] = voxel_size
+
+      used = thr_auto * modifier
+      status.set_text(
+        f"[{method_label}]  auto threshold={thr_auto:.4g}   modifier={modifier:.3f}   threshold used={used:.4g}   "
+        f"spot radius (z,y,x)={spot_radius}   voxel size (z,y,x)={voxel_size}   total spots={len(all_spots)}"
+      )
+      redraw()
+
+    def run_regular(_event):
+      run_detection(core.detect_spots, "regular detection")
+
+    def run_dense(_event):
+      run_detection(core.dense_detect_spots, "dense detection",
+                     running_note=" this decomposes dense/clustered regions and can take several minutes")
+
+    def finish(_event):
+      if len(state["all_spots"]) == 0:
+        status.set_text("Run detection at least once before finishing.")
+        fig.canvas.draw_idle()
+        return
+      state["finished"] = True
+      plt.close(fig)
+
+    def cancel(_event):
+      state["finished"] = False
+      plt.close(fig)
+
+    regular_btn.on_clicked(run_regular)
+    dense_btn.on_clicked(run_dense)
+    finish_btn.on_clicked(finish)
+    cancel_btn.on_clicked(cancel)
 
   plt.show()
   return state
@@ -424,6 +520,10 @@ def main():
 
   if mode == "filter":
     standalone_roi_filter()
+    return
+
+  if mode == "view":
+    view_csv_detections()
     return
 
   if mode != "analyze":

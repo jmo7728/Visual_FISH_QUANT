@@ -155,6 +155,11 @@ not need to repeat step 4 unless you re-download the project.
     modifier, then click through to the main review window.
   - **Filter a csv with an ROI...**: skip straight to filtering an
     existing spots csv against an ROI file, without opening any image.
+  - **View Detections from a csv...**: pick a `.tif` image and a
+    previously-saved (or ROI-filtered) spots csv, and browse those spots
+    in the same z-slice/brightness/LUT viewer — no detection is run, this
+    is just for checking a csv you already have against the image it
+    came from.
 - In the main review window:
   - Every slider (**z-slice**, **threshold modifier**, **brightness
     min/max**) has a box next to it where you can type an exact value
