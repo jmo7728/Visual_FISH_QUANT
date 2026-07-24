@@ -190,6 +190,16 @@ not need to repeat step 4 unless you re-download the project.
   - You'll then be asked if you want to filter those spots with an ROI
     file — you can do this immediately, or skip it and do it later from
     the first screen.
+  - Once that **Start Analysis** session finishes, a text editor window
+    opens automatically (Notepad on Windows, TextEdit on Mac) with a
+    timestamped log of everything that happened — the parameters used for
+    each detection run (spot radius, voxel size, threshold modifier,
+    threshold used, method, spot count) and the result of any ROI
+    filtering you did. **This log is not saved anywhere by itself** — if
+    you want to keep it, use Save/Save As in that editor window before
+    closing it. This log window only appears after a full Start Analysis
+    session; it doesn't show up when you only use "Filter a csv with an
+    ROI..." or "View Detections from a csv..." from the first screen.
 
 ---
 ## Running Program after setup
@@ -220,6 +230,12 @@ not need to repeat step 4 unless you re-download the project.
 - **`ModuleNotFoundError: No module named 'tkinter'`** (Linux only):
   install it with your package manager, e.g.
   `sudo apt install python3-tk` on Ubuntu/Debian.
+- **Crash right at the end of a Start Analysis session, mentioning `open`**
+  (Linux only): the session-log viewer uses the `open` command to launch
+  a text editor, which is a macOS-only tool and normally isn't installed
+  on Linux. This happens after your csv has already been saved, so your
+  results aren't lost — you just won't get the automatic log window on
+  Linux for now.
 - **Status bar says "Detection failed with spot radius ... voxel size ..."**:
   the spot radius is too small relative to the voxel size you entered
   (roughly, radius ÷ voxel size needs to be comfortably above ~0.3).

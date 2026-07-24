@@ -41,6 +41,12 @@ from matplotlib.collections import EllipseCollection
 import tkinter as tk
 from tkinter import filedialog, messagebox
 
+import io
+import logging
+import os
+import subprocess
+import tempfile
+
 import fish_quant_core as core
 
 
@@ -181,6 +187,8 @@ def standalone_roi_filter():
     f"ROI:\n{roi_path}\n\nCSV:\n{csv_path}\n\n"
     f"Total spots: {total}\nInside ROI: {inside}\n\nSaved to:\n{output_path}",
   )
+
+  logging.info(f"ROI filtering complete: ROI={roi_path} \n CSV={csv_path} \n Total spots={total} \n Inside ROI={inside} \n Saved to={output_path}")
 
 
 def view_csv_detections():
@@ -422,7 +430,7 @@ def interactive_analysis(image_raw, initial_modifier=1.0, preloaded_spots=None, 
         return
       spot_radius = (radius_z, radius_xy, radius_xy)
       voxel_size = (voxel_z, voxel_xy, voxel_xy)
-
+  
       status.set_text(f"Running {method_label} on the full stack...{running_note}")
       fig.canvas.draw()
       fig.canvas.flush_events()
@@ -443,9 +451,11 @@ def interactive_analysis(image_raw, initial_modifier=1.0, preloaded_spots=None, 
 
       used = thr_auto * modifier
       status.set_text(
-        f"[{method_label}]  auto threshold={thr_auto:.4g}   modifier={modifier:.3f}   threshold used={used:.4g}   "
-        f"spot radius (z,y,x)={spot_radius}   voxel size (z,y,x)={voxel_size}   total spots={len(all_spots)}"
+        f"[{method_label}]  \n auto threshold={thr_auto:.4g}  \n modifier={modifier:.3f} \n  threshold used={used:.4g} \n   "
+        f"spot radius (z,y,x)={spot_radius} \n  voxel size (z,y,x)={voxel_size}  \n  total spots={len(all_spots)}"
       )
+      logging.info(f"\n Parameters: spot radius (z,y,x)={spot_radius} \n voxel size (z,y,x)={voxel_size} \n threshold modifier={modifier:.3f} \n Threshold used={used:.4g} \n total spots={len(all_spots)} \n method={method_label}\n original threshold={thr_auto:.4g}\n brightness window=({vmin_slider.val:g}, {vmax_slider.val:g})")
+      logging.info(f"{method_label} complete: {len(all_spots)} spots detected \n threshold used={used:.4g}")
       redraw()
 
     def run_regular(_event):
@@ -515,6 +525,8 @@ def offer_roi_filter(csv_path):
 
 
 def main():
+  log_buffer = io.StringIO()
+  logging.basicConfig(stream=log_buffer, level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
   choice = pick_image_and_threshold()
   mode = choice.get("mode")
 
@@ -548,6 +560,25 @@ def main():
   print(f"Saved {len(state['all_spots'])} spots to {csv_path}")
 
   offer_roi_filter(csv_path)
+
+  log_data = log_buffer.getvalue()
+  log_buffer.close()
+
+  # 5. Open in text editor without saving permanently
+  if os.name == 'nt':  # Windows
+    # Passing text directly to Notepad via command line is tricky, 
+    # so we use a temp file that Notepad treats as a separate stream.
+    with tempfile.NamedTemporaryFile(delete=False, suffix='.txt', mode='w') as f:
+        f.write(log_data)
+        temp_path = f.name
+    
+    # Open notepad. If they click Save, it defaults to "Save As" 
+    subprocess.Popen(['notepad.exe', temp_path])
+    
+  else:  # macOS / Linux
+      # Use 'open -t' on Mac to open a temporary stream in TextEdit
+      process = subprocess.Popen(['open', '-f', '-t'], stdin=subprocess.PIPE, text=True)
+      process.communicate(input=log_data)
 
 
 if __name__ == "__main__":
