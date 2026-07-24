@@ -153,6 +153,7 @@ not need to repeat step 4 unless you re-download the project.
 - The first window lets you either:
   - **Start Analysis**: pick a `.tif` image and a starting threshold
     modifier, then click through to the main review window.
+    THIS IMAGE MUST BE IN 16-bit! Adjust via FIJI Image>Type>16-bit.
   - **Filter a csv with an ROI...**: skip straight to filtering an
     existing spots csv against an ROI file, without opening any image.
   - **View Detections from a csv...**: pick a `.tif` image and a
