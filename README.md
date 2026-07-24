@@ -192,7 +192,15 @@ not need to repeat step 4 unless you re-download the project.
     the first screen.
 
 ---
+## Running Program after setup
 
+- **If you have already finished doing setup/installation, follow these instructions!** 
+- **Open Terminal**
+- **`cd {path_to_program_where_installed}`**
+- **`pipenv shell`**
+- **`pipenv install`**
+- **`pipenv run python fish_quant_gui.py`**
+---
 ## Troubleshooting
 
 - **`'python' is not recognized as an internal or external command`**
