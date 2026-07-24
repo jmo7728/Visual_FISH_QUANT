@@ -156,14 +156,26 @@ not need to repeat step 4 unless you re-download the project.
   - **Filter a csv with an ROI...**: skip straight to filtering an
     existing spots csv against an ROI file, without opening any image.
 - In the main review window:
-  - Drag the **z-slice** slider (or type an exact value in the box next
-    to it, or click the box and use the ↑/↓ arrow keys) to page through
-    the image and check detected spots (red circles) against the raw
-    image.
-  - Adjust the **threshold modifier** slider and click **Run detection**
-    to re-run spot detection with a new threshold.
-  - Adjust **spot radius (xy/z, nm)** if spots are being detected as too
-    small or too large.
+  - Every slider (**z-slice**, **threshold modifier**, **brightness
+    min/max**) has a box next to it where you can type an exact value
+    (press Enter), or click into that box and use the ↑/↓ arrow keys to
+    nudge it by a small step.
+  - Drag or type the **z-slice** control to page through the image and
+    check detected spots (red circles) against the raw image.
+  - Adjust **spot radius (xy/z, nm)** and **voxel size (xy/z, nm)** if
+    spots are being detected as too small, too large, or not at all —
+    voxel size should match your microscope's actual pixel size, and
+    spot radius is roughly how big a real spot is physically.
+  - Adjust the **threshold modifier** slider (0.05–2.0), then click one
+    of:
+    - **Regular Detect** — standard spot detection, fast (seconds to
+      ~1 minute depending on image size).
+    - **Dense Detect** — same detection, followed by decomposing
+      dense/overlapping spot clusters into individual spots. This can
+      take several minutes, especially at low/permissive thresholds
+      that produce a lot of raw spots — the window will look frozen
+      while it runs, that's expected. It's worth dialing in a threshold
+      with Regular Detect first before trying Dense Detect.
   - Use the **brightness min/max** sliders to make dim spots visible.
   - Use the **LUT** panel on the right to change how the image is
     colored (similar to Image > Lookup Tables in Fiji/ImageJ).
@@ -194,3 +206,11 @@ not need to repeat step 4 unless you re-download the project.
 - **`ModuleNotFoundError: No module named 'tkinter'`** (Linux only):
   install it with your package manager, e.g.
   `sudo apt install python3-tk` on Ubuntu/Debian.
+- **Status bar says "Detection failed with spot radius ... voxel size ..."**:
+  the spot radius is too small relative to the voxel size you entered
+  (roughly, radius ÷ voxel size needs to be comfortably above ~0.3).
+  Increase the spot radius or decrease the voxel size and try again.
+- **Dense Detect seems to hang**: it can genuinely take several minutes,
+  especially with a low threshold modifier producing lots of raw spots.
+  There's no progress bar — give it time, or lower the number of raw
+  spots first by tuning the threshold with Regular Detect.
