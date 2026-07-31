@@ -76,7 +76,13 @@ def load_spots_csv(csv_path):
   return df[["z", "y", "x"]].to_numpy()
 
 
-def filter_roi(roi_path, csv_path):
+def filter_roi(roi_path, csv_path, output_path=None):
+  """Keep only the spots of csv_path that fall inside roi_path.
+
+  output_path lets the caller name the result explicitly -- needed when one
+  csv is filtered by several rois in a row, since the default name depends
+  only on the csv and every roi would otherwise overwrite the last one.
+  """
   spots_df = pd.read_csv(csv_path)
   roi = roifile.ImagejRoi.fromfile(roi_path)
   pachytene_polygon = Polygon(roi.coordinates())
@@ -85,9 +91,10 @@ def filter_roi(roi_path, csv_path):
                 for _, row in spots_df.iterrows()]
   filtered_df = spots_df[inside_roi]
 
-  folder = os.path.dirname(csv_path)
-  orig_name = os.path.basename(csv_path).replace(".csv", "")
-  output_path = os.path.join(folder, f"{orig_name}_filtered_ROI.csv")
+  if output_path is None:
+    folder = os.path.dirname(csv_path)
+    orig_name = os.path.basename(csv_path).replace(".csv", "")
+    output_path = os.path.join(folder, f"{orig_name}_filtered_ROI.csv")
   filtered_df.to_csv(output_path, index=False)
 
   print("\n--- 🔬 ANALYSIS COMPLETE 🔬 ---")

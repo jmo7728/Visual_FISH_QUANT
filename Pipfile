@@ -9,6 +9,7 @@ big-fish = "*"
 ipywidgets = "*"
 shapely = "*"
 roifile = "*"
+tkinterdnd2 = "*"
 
 [dev-packages]
 
